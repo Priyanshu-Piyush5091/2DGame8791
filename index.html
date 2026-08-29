@@ -1,0 +1,948 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Super Cube Bros - AI & Audio Overhaul</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --ui-bg: rgba(15, 23, 42, 0.9);
+            --text: #f8fafc;
+            --accent: #fbbf24;
+            --danger: #ef4444;
+            --success: #22c55e;
+            --brand: #3b82f6;
+        }
+        * { box-sizing: border-box; user-select: none; }
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            background-color: var(--bg); color: var(--text);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden; display: flex; justify-content: center; align-items: center;
+        }
+        #game-wrapper {
+            position: relative; width: 95vw; max-width: 1200px; aspect-ratio: 16 / 9;
+            background: #000; box-shadow: 0 0 50px rgba(0,0,0,0.8), 0 0 0 4px #334155;
+            border-radius: 12px; overflow: hidden;
+        }
+        canvas {
+            display: block; width: 100%; height: 100%;
+            image-rendering: pixelated; background: #87CEEB;
+        }
+        .ui-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            background: var(--ui-bg); z-index: 10; opacity: 0; pointer-events: none;
+            transition: opacity 0.2s ease-in-out; text-align: center; backdrop-filter: blur(6px);
+        }
+        .ui-layer.active { opacity: 1; pointer-events: auto; }
+        #hud {
+            position: absolute; top: 0; left: 0; width: 100%; padding: 20px 30px;
+            display: flex; justify-content: space-between; pointer-events: none; z-index: 5; 
+            text-shadow: 2px 2px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+            font-weight: 900; font-size: 1.8rem; color: white;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .hud-group { display: flex; gap: 30px; }
+        h1 { 
+            color: var(--accent); margin-bottom: 10px; font-size: 4rem; 
+            text-shadow: 5px 5px 0 #000; text-transform: uppercase; letter-spacing: 3px;
+        }
+        p { font-size: 1.4rem; margin-bottom: 30px; color: #cbd5e1; }
+        button {
+            background: var(--brand); color: #fff; border: 3px solid #fff; border-radius: 8px;
+            padding: 15px 40px; margin: 10px; font-size: 1.4rem; font-weight: bold; 
+            cursor: pointer; transition: all 0.1s; text-transform: uppercase; box-shadow: 0 5px 0 #fff;
+        }
+        button:hover { transform: translateY(-2px); box-shadow: 0 7px 0 #fff; filter: brightness(1.2); }
+        button:active { transform: translateY(5px); box-shadow: 0 0 0 #fff; }
+        button.danger { background: var(--danger); }
+        button.success { background: var(--success); }
+        .controls-hint { 
+            margin-top: 40px; font-size: 1.1rem; color: #94a3b8; 
+            background: rgba(0,0,0,0.6); padding: 20px;
+            border-radius: 12px; border: 2px solid #334155; line-height: 1.5;
+        }
+        #screen-flash {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: white; opacity: 0; pointer-events: none; z-index: 20;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <div id="hud">
+        <div class="hud-group">
+            <span id="hud-score">SCORE: 000000</span>
+            <span id="hud-coins">🪙 x00</span>
+        </div>
+        <div class="hud-group">
+            <span id="hud-level">WORLD 1</span>
+            <span id="hud-hp">HP: ❤️❤️❤️</span>
+        </div>
+    </div>
+
+    <div id="screen-flash"></div>
+
+    <div id="menu-main" class="ui-layer active">
+        <h1>Super Cube Bros</h1>
+        <p>AI Overhaul Edition</p>
+        <button class="success" onclick="Game.start(false)">New Game</button>
+        <button id="btn-continue" onclick="Game.start(true)" style="display:none;">Continue</button>
+        <div class="controls-hint">
+            <strong>CONTROLS</strong><br><br>
+            Arrows / WASD : Move & Crouch<br>
+            Z / Space : Jump<br>
+            X / Shift : Run & Fireball<br>
+            ESC : Pause
+        </div>
+    </div>
+
+    <div id="menu-pause" class="ui-layer">
+        <h1>PAUSED</h1>
+        <button class="success" onclick="Game.resume()">Resume</button>
+        <button class="danger" onclick="Game.quit()">Quit to Menu</button>
+    </div>
+
+    <div id="menu-gameover" class="ui-layer">
+        <h1 style="color: var(--danger);">GAME OVER</h1>
+        <p id="gameover-stats">Score: 0</p>
+        <button class="success" onclick="Game.restartLevel()">Try Again</button>
+        <button class="danger" onclick="Game.quit()">Main Menu</button>
+    </div>
+
+    <div id="menu-victory" class="ui-layer">
+        <h1 style="color: var(--success);">LEVEL CLEARED!</h1>
+        <p id="victory-stats">Awesome Job!</p>
+        <button class="success" onclick="Game.nextLevel()">Next Level</button>
+    </div>
+
+    <div id="menu-end" class="ui-layer">
+        <h1 style="color: var(--accent);">YOU WIN!</h1>
+        <p>The boss is defeated. Peace returns to the geometry.</p>
+        <p id="final-stats">Total Score: 0</p>
+        <button class="brand" onclick="Game.quit()">Return to Menu</button>
+    </div>
+
+    <canvas id="gameCanvas" width="640" height="360"></canvas>
+</div>
+
+<script>
+const CFG = {
+    w: 640, h: 360, ts: 24, gravity: 0.525, maxFall: 12,
+    friction: 0.82, iceFriction: 0.98, accel: 0.4,
+    speedWalk: 3.3, speedRun: 5.8, jumpForce: -9.8, bounceForce: -7.5, 
+    coyoteTime: 7, jumpBuffer: 6, invincibilityFrames: 90
+};
+
+const COLORS = {
+    sky: ['#87CEEB', '#2c3e50', '#143314', '#cceeff', '#2a0a0a'],
+    player: '#3b82f6', playerFire: '#ef4444',
+    enemyWalk: '#dc2626', enemyShoot: '#f97316', enemyHop: '#16a34a', enemyFly: '#a855f7',
+    boss: '#6b21a8', coin: '#facc15', powerup: '#ef4444',
+    brick: '#b45309', brickDark: '#78350f', groundTop: '#4ade80', groundFill: '#166534',
+    metal: '#9ca3af'
+};
+
+const Utils = {
+    clamp: (val, min, max) => Math.max(min, Math.min(val, max)),
+    rectIntersect: (r1, r2) => r1.x < r2.x + r2.w && r1.x + r1.w > r2.x && r1.y < r2.y + r2.h && r1.y + r1.h > r2.y,
+    shake: 0
+};
+
+const Storage = {
+    save(data) { try { localStorage.setItem('scb_dx_save', JSON.stringify(data)); } catch(e){} },
+    load() {
+        try { 
+            let d = localStorage.getItem('scb_dx_save');
+            if(d) {
+                let parsed = JSON.parse(d);
+                document.getElementById('btn-continue').style.display = 'inline-block';
+                return parsed;
+            }
+        } catch(e){} return null;
+    }
+};
+
+const Input = {
+    keys: {}, justPressed: {},
+    binds: {
+        'ArrowLeft': 'left', 'a': 'left', 'A': 'left',
+        'ArrowRight': 'right', 'd': 'right', 'D': 'right',
+        'ArrowDown': 'down', 's': 'down', 'S': 'down',
+        'ArrowUp': 'jump', 'w': 'jump', 'W': 'jump', 'z': 'jump', 'Z': 'jump', ' ': 'jump',
+        'x': 'action', 'X': 'action', 'Shift': 'action',
+        'Escape': 'pause', 'p': 'pause', 'P': 'pause'
+    },
+    state: { left: false, right: false, down: false, jump: false, action: false, pause: false },
+    pressed: { jump: false, action: false, pause: false },
+
+    init() {
+        window.addEventListener('keydown', e => {
+            if (this.binds[e.key]) {
+                const action = this.binds[e.key];
+                if (!this.state[action]) this.pressed[action] = true;
+                this.state[action] = true;
+                if(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+            }
+            AudioSys.init();
+        });
+        window.addEventListener('keyup', e => { if (this.binds[e.key]) this.state[this.binds[e.key]] = false; });
+    },
+    update() { for (let k in this.pressed) this.pressed[k] = false; }
+};
+
+const AudioSys = {
+    ctx: null, master: null, initialized: false,
+    init() {
+        if (this.initialized) return;
+        window.AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (!window.AudioContext) return;
+        this.ctx = new AudioContext();
+        this.master = this.ctx.createGain(); this.master.gain.value = 0.4;
+        this.master.connect(this.ctx.destination);
+        this.initialized = true;
+    },
+    playNode(type, freq, tOffset, dur, vol, slideTo=null) {
+        if (!this.initialized) return;
+        const t = this.ctx.currentTime + tOffset;
+        const osc = this.ctx.createOscillator(); const gain = this.ctx.createGain();
+        osc.type = type; osc.frequency.setValueAtTime(freq, t);
+        if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+        gain.gain.setValueAtTime(vol, t); gain.gain.exponentialRampToValueAtTime(0.01, t + dur);
+        osc.connect(gain); gain.connect(this.master);
+        osc.start(t); osc.stop(t + dur);
+    },
+    play(type) {
+        if (!this.initialized || this.ctx.state === 'suspended') return;
+        switch(type) {
+            case 'jump': this.playNode('square', 150, 0, 0.15, 0.3, 400); break;
+            case 'coin': this.playNode('sine', 900, 0, 0.1, 0.3, 1200); this.playNode('sine', 1200, 0.1, 0.2, 0.3); break;
+            case 'stomp': this.playNode('square', 300, 0, 0.15, 0.4, 50); break;
+            case 'bump': this.playNode('triangle', 100, 0, 0.1, 0.5, 50); break;
+            case 'powerup': this.playNode('square', 300, 0, 0.1, 0.3, 500); this.playNode('square', 400, 0.1, 0.1, 0.3, 600); break;
+            case 'shoot': this.playNode('sawtooth', 400, 0, 0.1, 0.2, 100); break;
+            case 'enemy_shoot': this.playNode('sawtooth', 200, 0, 0.15, 0.2, 50); break;
+            case 'hit': this.playNode('sawtooth', 150, 0, 0.3, 0.5, 20); break;
+            case 'boss_hurt': this.playNode('sawtooth', 80, 0, 0.4, 0.6, 20); break;
+            case 'step': this.playNode('square', 40, 0, 0.05, 0.05); break;
+            case 'dive': this.playNode('triangle', 600, 0, 0.4, 0.2, 100); break;
+            case 'dash': 
+                this.playNode('sawtooth', 50, 0, 0.3, 0.4, 300); 
+                this.playNode('square', 100, 0, 0.3, 0.3, 400); break;
+            case 'win': 
+                [300, 400, 500, 600, 800].forEach((f, i) => this.playNode('square', f, i*0.1, 0.2, 0.3));
+                break;
+            case 'die':
+                [400, 350, 300, 250, 200, 150].forEach((f, i) => this.playNode('sawtooth', f, i*0.2, 0.4, 0.4));
+                break;
+        }
+    }
+};
+
+class Particle {
+    constructor(x, y, vx, vy, color, life, size=3) {
+        this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+        this.color = color; this.life = life; this.maxLife = life; this.size = size;
+    }
+    update() { this.vy += CFG.gravity * 0.5; this.x += this.vx; this.y += this.vy; this.life--; }
+    draw(ctx, camX, camY) {
+        ctx.fillStyle = this.color; ctx.globalAlpha = Math.max(0, this.life / this.maxLife);
+        ctx.fillRect(Math.floor(this.x - camX), Math.floor(this.y - camY), this.size, this.size);
+        ctx.globalAlpha = 1;
+    }
+}
+
+class FloatingText {
+    constructor(x, y, text, color) {
+        this.x = x; this.y = y; this.text = text; this.color = color; this.life = 40; this.vy = -1.5;
+    }
+    update() { this.y += this.vy; this.life--; }
+    draw(ctx, camX, camY) {
+        ctx.fillStyle = this.color; ctx.font = 'bold 16px Courier New'; ctx.globalAlpha = Math.max(0, this.life / 40);
+        ctx.fillText(this.text, Math.floor(this.x - camX), Math.floor(this.y - camY)); ctx.globalAlpha = 1;
+    }
+}
+
+const FX = {
+    particles: [], texts: [],
+    spawn(x, y, count, color, speed, size=3) {
+        for(let i=0; i<count; i++) {
+            let angle = Math.random() * Math.PI * 2; let vel = Math.random() * speed;
+            this.particles.push(new Particle(x, y, Math.cos(angle)*vel, Math.sin(angle)*vel, color, 15 + Math.random()*20, size));
+        }
+    },
+    spawnText(x, y, text, color='#fff') { this.texts.push(new FloatingText(x, y, text, color)); },
+    update() {
+        for(let i=this.particles.length-1; i>=0; i--) { this.particles[i].update(); if(this.particles[i].life <= 0) this.particles.splice(i, 1); }
+        for(let i=this.texts.length-1; i>=0; i--) { this.texts[i].update(); if(this.texts[i].life <= 0) this.texts.splice(i, 1); }
+    },
+    draw(ctx, camX, camY) {
+        for(let p of this.particles) p.draw(ctx, camX, camY);
+        for(let t of this.texts) t.draw(ctx, camX, camY);
+    },
+    clear() { this.particles = []; this.texts = []; }
+};
+
+function flashScreen() {
+    let el = document.getElementById('screen-flash');
+    el.style.opacity = 0.8;
+    setTimeout(() => { el.style.transition = 'opacity 0.5s'; el.style.opacity = 0; }, 50);
+    setTimeout(() => { el.style.transition = 'none'; }, 600);
+}
+
+class AABB {
+    constructor(x, y, w, h) {
+        this.x = x; this.y = y; this.w = w; this.h = h;
+        this.vx = 0; this.vy = 0;
+        this.grounded = false; this.dead = false;
+    }
+    move(level) {
+        this.x += this.vx; this.collide(level, true);
+        this.y += this.vy; this.grounded = false; this.collide(level, false);
+        if (this.x < 0) { this.x = 0; this.vx = 0; }
+        if (this.x + this.w > level.w * CFG.ts) { this.x = level.w * CFG.ts - this.w; this.vx = 0; }
+        if (this.y > level.h * CFG.ts + 100) { this.dead = true; }
+    }
+    collide(level, isXAxis) {
+        let ts = CFG.ts, c1 = Math.floor(this.x / ts), c2 = Math.floor((this.x + this.w - 0.01) / ts);
+        let r1 = Math.floor(this.y / ts), r2 = Math.floor((this.y + this.h - 0.01) / ts);
+        for(let r = r1; r <= r2; r++) {
+            for(let c = c1; c <= c2; c++) {
+                if (level.isSolid(c, r)) {
+                    if (isXAxis) {
+                        if (this.vx > 0) this.x = c * ts - this.w; else if (this.vx < 0) this.x = (c + 1) * ts;
+                        this.vx = 0; return;
+                    } else {
+                        if (this.vy > 0) { this.y = r * ts - this.h; this.grounded = true; }
+                        else if (this.vy < 0) { this.y = (r + 1) * ts; this.hitCeiling(c, r, level); }
+                        this.vy = 0; return;
+                    }
+                }
+            }
+        }
+    }
+    hitCeiling(c, r, level) {}
+}
+
+class Player extends AABB {
+    constructor(x, y) {
+        super(x, y, 18, 22);
+        this.hp = 3; this.power = 0; this.iFrames = 0;
+        this.coyote = 0; this.jumpBuf = 0; this.stepTimer = 0;
+        this.facingRight = true; this.state = 'idle';
+    }
+    update(level) {
+        if (this.iFrames > 0) this.iFrames--;
+
+        let friction = level.theme === 3 ? CFG.iceFriction : CFG.friction;
+        let maxSpd = Input.state.action ? CFG.speedRun : CFG.speedWalk;
+        
+        if (Input.state.left) { this.vx -= CFG.accel; this.facingRight = false; this.state = Input.state.action ? 'run' : 'walk'; } 
+        else if (Input.state.right) { this.vx += CFG.accel; this.facingRight = true; this.state = Input.state.action ? 'run' : 'walk'; } 
+        else { this.vx *= friction; if (Math.abs(this.vx) < 0.1) this.vx = 0; this.state = 'idle'; }
+        
+        this.vx = Utils.clamp(this.vx, -maxSpd, maxSpd);
+
+        if (this.grounded) {
+            this.coyote = CFG.coyoteTime;
+            if (this.state !== 'idle') {
+                this.stepTimer++;
+                let stepFreq = this.state === 'run' ? 8 : 14;
+                if (this.stepTimer >= stepFreq) {
+                    AudioSys.play('step'); this.stepTimer = 0;
+                    if(!level.isIce) FX.spawn(this.x+9, this.y+22, 1, '#fff', 1, 2);
+                }
+            } else this.stepTimer = 0;
+        } else {
+            this.coyote--; this.state = this.vy < 0 ? 'jump' : 'fall';
+        }
+
+        if (Input.pressed.jump) this.jumpBuf = CFG.jumpBuffer; else this.jumpBuf--;
+
+        if (this.jumpBuf > 0 && this.coyote > 0) {
+            this.vy = CFG.jumpForce; this.grounded = false; this.jumpBuf = 0; this.coyote = 0;
+            AudioSys.play('jump'); FX.spawn(this.x+9, this.y+22, 6, '#fff', 1.5);
+        }
+
+        if (!Input.state.jump && this.vy < 0) this.vy *= 0.5;
+
+        if (Input.pressed.action && this.power > 0) {
+            if (level.projectiles.filter(p => p.isPlayer).length < 2) {
+                level.projectiles.push(new Fireball(this.x, this.y+8, this.facingRight ? 8 : -8, true));
+                AudioSys.play('shoot');
+            }
+        }
+
+        this.vy += CFG.gravity; this.vy = Utils.clamp(this.vy, -999, CFG.maxFall);
+        this.move(level);
+        if (this.dead) Game.playerDied();
+    }
+
+    hitCeiling(c, r, level) {
+        let tile = level.getTile(c, r);
+        if (tile === '?') { level.setTile(c, r, 'U'); level.spawnItem(c, r, 'powerup'); AudioSys.play('powerup'); } 
+        else if (tile === 'c') { level.setTile(c, r, 'U'); level.spawnItem(c, r, 'coin'); } 
+        else if (tile === 'B') {
+            if (this.power > 0) {
+                level.setTile(c, r, '.'); FX.spawn(c*CFG.ts + 12, r*CFG.ts + 12, 12, COLORS.brick, 4, 6);
+                AudioSys.play('bump'); Game.addScore(10);
+            } else { AudioSys.play('bump'); level.bounceTile(c, r); }
+        } else AudioSys.play('bump');
+    }
+
+    damage() {
+        if (this.iFrames > 0) return;
+        this.hp--; this.power = 0; AudioSys.play('hit');
+        Utils.shake = 15; flashScreen();
+        if (this.hp <= 0) this.dead = true;
+        else this.iFrames = CFG.invincibilityFrames;
+    }
+
+    draw(ctx, camX, camY) {
+        if (this.iFrames > 0 && Math.floor(Date.now() / 100) % 2 === 0) return;
+        let px = Math.floor(this.x - camX), py = Math.floor(this.y - camY);
+        let stretch = this.state === 'jump' ? 3 : (this.state === 'fall' ? -2 : 0);
+        let crouch = Input.state.down && this.grounded ? 6 : 0;
+        
+        ctx.fillStyle = this.power === 1 ? COLORS.playerFire : COLORS.player;
+        ctx.beginPath(); ctx.roundRect(px, py + stretch + crouch, this.w, this.h - stretch - crouch, 4); ctx.fill();
+        
+        ctx.fillStyle = '#fff'; let ex = this.facingRight ? 10 : 2; let ey = py + stretch + crouch + 4;
+        ctx.fillRect(px + ex, ey, 6, 6);
+        ctx.fillStyle = '#000'; ctx.fillRect(px + ex + (this.facingRight?3:0), ey+1, 3, 3);
+    }
+}
+
+class Enemy extends AABB {
+    constructor(x, y, type) {
+        super(x, y, 20, 20);
+        this.type = type; // 0=walker, 1=flyer, 2=shooter, 3=hopper
+        this.startX = x; this.startY = y;
+        this.timer = Math.random() * 100;
+        this.aiState = 'patrol';
+        if (this.type === 0 || this.type === 2) this.vx = -1.5;
+        if (this.type === 1) this.vx = -2.5;
+    }
+    update(level) {
+        this.timer++;
+        let pDistX = Game.player ? Game.player.x - this.x : 9999;
+        let pDistY = Game.player ? Game.player.y - this.y : 9999;
+        let absDistX = Math.abs(pDistX);
+
+        if (this.type === 1) { // Flyer - Dive AI
+            if (this.aiState === 'patrol') {
+                this.y = this.startY + Math.sin(this.timer * 0.05) * 40;
+                this.x += this.vx;
+                if (Math.abs(this.x - this.startX) > 200) this.vx *= -1;
+                
+                if (absDistX < 60 && pDistY > 50 && !Game.player.dead) {
+                    this.aiState = 'dive'; this.vy = 8; this.vx = 0; AudioSys.play('dive');
+                }
+            } else if (this.aiState === 'dive') {
+                this.y += this.vy;
+                if (pDistY < -10 || this.grounded || this.y > this.startY + 200) {
+                    this.aiState = 'recover'; this.vy = -3; this.vx = this.startX > this.x ? 2.5 : -2.5;
+                }
+                if (this.grounded) this.y -= 5; // bounce up slightly
+            } else if (this.aiState === 'recover') {
+                this.x += this.vx; this.y += this.vy;
+                if (this.y <= this.startY) { this.y = this.startY; this.aiState = 'patrol'; }
+            }
+            // Check wall collision during dive/recover
+            let pVx = this.vx; this.collide(level, true); if(this.vx === 0 && pVx !== 0) this.vx = pVx * -1;
+        } 
+        else if (this.type === 3) { // Hopper - Distance scaled jump
+            this.vy += CFG.gravity;
+            if (this.grounded) {
+                this.vx *= 0.8;
+                if (this.timer > 90 && !Game.player.dead && absDistX < 350) {
+                    this.timer = 0; 
+                    // Jump higher/farther if player is further away
+                    let forceMulti = Utils.clamp(absDistX / 150, 0.7, 1.3);
+                    this.vy = -7.5 * forceMulti;
+                    this.vx = (pDistX > 0 ? 3.5 : -3.5) * forceMulti;
+                    AudioSys.play('jump');
+                }
+            }
+            this.move(level);
+        }
+        else { // Walker & Shooter
+            this.vy += CFG.gravity;
+            
+            if (this.grounded) {
+                let headC = Math.floor((this.x + (this.vx>0?this.w+4:-4)) / CFG.ts);
+                let headR = Math.floor((this.y + this.h + 4) / CFG.ts);
+                if (!level.isSolid(headC, headR)) this.vx *= -1;
+            }
+
+            if (this.type === 0 && this.grounded && !Game.player.dead) { // Aggro Walker
+                if (absDistX < 180 && Math.abs(pDistY) < 30) {
+                    this.aiState = 'charge';
+                    this.vx = pDistX > 0 ? 3.2 : -3.2;
+                } else {
+                    if (this.aiState === 'charge') { this.vx = this.vx > 0 ? 1.5 : -1.5; this.aiState = 'patrol'; }
+                }
+            }
+
+            if (this.type === 2 && this.grounded && !Game.player.dead) { // Burst Shooter
+                if (absDistX < 300 && Math.abs(pDistY) < 50) {
+                    // Retreat if too close
+                    if (absDistX < 80) this.vx = pDistX > 0 ? -1.5 : 1.5;
+                    else this.vx = 0;
+
+                    let cycle = this.timer % 200;
+                    if (cycle === 150 || cycle === 165 || cycle === 180) {
+                        let dir = pDistX > 0 ? 1 : -1;
+                        this.vx = dir * 0.1; // Face player
+                        level.projectiles.push(new Fireball(this.x+10, this.y+10, dir * 4.5, false));
+                        AudioSys.play('enemy_shoot');
+                    }
+                } else {
+                    if(this.vx === 0) this.vx = 1.5; // Resume patrol
+                }
+            }
+
+            let pVx = this.vx; this.move(level);
+            if (this.vx === 0 && pVx !== 0) this.vx = pVx * -1;
+        }
+    }
+    draw(ctx, camX, camY) {
+        let px = Math.floor(this.x - camX), py = Math.floor(this.y - camY);
+        
+        if (this.type === 0) ctx.fillStyle = this.aiState === 'charge' ? '#ff0000' : COLORS.enemyWalk;
+        else if (this.type === 1) ctx.fillStyle = COLORS.enemyFly;
+        else if (this.type === 2) ctx.fillStyle = COLORS.enemyShoot;
+        else ctx.fillStyle = COLORS.enemyHop;
+
+        ctx.beginPath();
+        if(this.type === 1) ctx.arc(px+10, py+10, 10, 0, Math.PI*2);
+        else ctx.roundRect(px, py+2, this.w, this.h-2, 4);
+        ctx.fill();
+        
+        ctx.strokeStyle = '#fff'; ctx.lineWidth=3; ctx.beginPath();
+        let fx = this.vx > 0 ? 12 : 3;
+        if (this.type === 1 && this.aiState === 'dive') fx = 7; // Look down
+        if (this.type === 3) fx = 7;
+        ctx.moveTo(px+fx, py+8); ctx.lineTo(px+fx+5, py+11); ctx.stroke();
+    }
+}
+
+class Boss extends AABB {
+    constructor(x, y) {
+        super(x, y, 48, 48);
+        this.hp = 10; this.maxHp = 10;
+        this.state = 'idle'; this.timer = 0; this.iFrames = 0;
+        this.facingRight = false;
+    }
+    update(level) {
+        if(this.iFrames > 0) this.iFrames--;
+        this.timer++;
+        if (!Game.player.dead) this.facingRight = Game.player.x > this.x;
+
+        let spdMult = this.hp <= 5 ? 1.4 : 1; 
+
+        if (this.state === 'idle') {
+            this.vx *= 0.8;
+            if (this.timer > (70 / spdMult)) {
+                this.timer = 0;
+                let r = Math.random();
+                if (r < 0.35) this.state = 'shoot';
+                else if (r < 0.7) { this.state = 'dash'; AudioSys.play('dash'); }
+                else this.state = 'jump';
+            }
+        } 
+        else if (this.state === 'shoot') {
+            if (this.timer === 15) {
+                let dir = this.facingRight ? 5.5 : -5.5;
+                level.projectiles.push(new Fireball(this.x+24, this.y+24, dir, false));
+                level.projectiles.push(new Fireball(this.x+24, this.y+24, dir, false, -2.5));
+                level.projectiles.push(new Fireball(this.x+24, this.y+24, dir, false, 2.5));
+                AudioSys.play('enemy_shoot');
+            }
+            if (this.timer > 40) { this.state = 'idle'; this.timer = 0; }
+        }
+        else if (this.state === 'dash') {
+            if (this.timer < 30) this.vx = 0; // charge up
+            else if (this.timer === 30) {
+                this.vx = this.facingRight ? 11 * spdMult : -11 * spdMult;
+            }
+            if (this.timer > 30 && this.vx === 0) { // hit wall
+                Utils.shake = 25; AudioSys.play('bump');
+                this.state = 'idle'; this.timer = 0;
+            }
+        }
+        else if (this.state === 'jump') {
+            if (this.timer === 1) { 
+                this.vy = -15; this.vx = (Game.player.x - this.x) * 0.055; 
+                AudioSys.play('jump'); 
+            }
+            if (this.timer > 10 && this.grounded) {
+                Utils.shake = 25; AudioSys.play('stomp');
+                this.state = 'idle'; this.timer = 0;
+            }
+        }
+
+        this.vy += CFG.gravity;
+        let pVx = this.vx; this.move(level);
+        if(this.state === 'dash' && this.vx === 0 && pVx !== 0) this.vx = 0;
+    }
+    damage() {
+        if(this.iFrames > 0) return;
+        this.hp--; this.iFrames = 40;
+        AudioSys.play('boss_hurt'); FX.spawn(this.x+24, this.y+24, 30, '#fff', 5);
+        Utils.shake = 20;
+        if(this.hp <= 0) { this.dead = true; Game.addScore(3000); Game.winGame(); }
+    }
+    draw(ctx, camX, camY) {
+        if (this.iFrames > 0 && Math.floor(Date.now() / 100) % 2 === 0) return;
+        let px = Math.floor(this.x - camX), py = Math.floor(this.y - camY);
+        
+        ctx.fillStyle = (this.state === 'dash' && this.timer < 30 && Math.floor(Date.now() / 100) % 2 === 0) ? '#fff' : COLORS.boss;
+        ctx.fillRect(px, py, this.w, this.h);
+        
+        ctx.fillStyle = '#aaa';
+        for(let i=0; i<4; i++) {
+            ctx.beginPath(); ctx.moveTo(px + 4 + i*11, py); ctx.lineTo(px + 9 + i*11, py - 10); ctx.lineTo(px + 14 + i*11, py); ctx.fill();
+        }
+
+        ctx.fillStyle = '#000'; ctx.fillRect(px, py - 20, this.w, 6);
+        ctx.fillStyle = '#0f0'; ctx.fillRect(px, py - 20, this.w * (this.hp/this.maxHp), 6);
+        
+        ctx.fillStyle = '#f00'; let ex = this.facingRight ? 30 : 6; ctx.fillRect(px + ex, py + 12, 12, 12);
+        ctx.fillStyle = '#fff'; ctx.fillRect(px + ex + (this.facingRight?6:2), py + 16, 4, 4);
+    }
+}
+
+class Item extends AABB {
+    constructor(x, y, type) { super(x, y, 16, 16); this.type = type; this.vy = -4.5; this.life = 0; if(type === 'powerup') this.vx = 1.5; }
+    update(level) {
+        this.life++;
+        if (this.type === 'powerup') { this.vy += CFG.gravity; let pVx = this.vx; this.move(level); if(this.vx===0 && pVx!==0) this.vx = pVx * -1; } 
+        else { this.vy += CFG.gravity; this.y += this.vy; if(this.life > 30) { this.dead = true; Game.collectCoin(); } }
+    }
+    draw(ctx, camX, camY) {
+        let px = Math.floor(this.x - camX), py = Math.floor(this.y - camY);
+        if (this.type === 'coin') {
+            ctx.fillStyle = COLORS.coin; ctx.beginPath(); ctx.ellipse(px+8, py+8, Math.abs(Math.cos(this.life*0.15))*8, 12, 0, 0, Math.PI*2); ctx.fill();
+        } else {
+            ctx.fillStyle = COLORS.powerup; ctx.beginPath(); ctx.arc(px+8, py+8, 8, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#fff'; ctx.fillRect(px+5, py+3, 6, 6);
+        }
+    }
+}
+
+class Fireball extends AABB {
+    constructor(x, y, vx, isPlayer, vy=0) { super(x, y, 10, 10); this.vx = vx; this.vy = vy; this.isPlayer = isPlayer; this.life = 120; }
+    update(level) {
+        this.life--; if(this.life <= 0) this.dead = true;
+        this.vy += CFG.gravity; let pVx = this.vx; this.move(level);
+        if (this.vx === 0 && pVx !== 0) { this.dead = true; FX.spawn(this.x, this.y, 8, this.isPlayer?COLORS.playerFire:'#fa0', 3); }
+        if (this.grounded) { this.vy = -5.5; }
+    }
+    draw(ctx, camX, camY) {
+        ctx.fillStyle = this.isPlayer ? COLORS.playerFire : '#fa0';
+        ctx.beginPath(); ctx.arc(Math.floor(this.x-camX+5), Math.floor(this.y-camY+5), 5, 0, Math.PI*2); ctx.fill();
+    }
+}
+
+const LevelData = [
+    [
+        "............................................................",
+        "............................................................",
+        "............................................................",
+        "............................................................",
+        "............................................................",
+        "............................................................",
+        "...................c.c.c....................................",
+        "...................B.?.B....................................",
+        ".................................................c..........",
+        ".............................H........B.?.B.....BBB.........",
+        "........?...................###.............................",
+        "...........................#####.......................X....",
+        "P..............E..........#######..............E......###...",
+        "#################...########################################",
+        "#################...########################################"
+    ],
+    [
+        "............................................................",
+        "............................................................",
+        "............................ccc.............................",
+        "...........................#####............................",
+        ".....................###....................?...............",
+        "...........................................###..............",
+        "................###.............E.....S.....................",
+        "...........B?B................####...####..........X........",
+        "..................................................###.......",
+        "......###.............#####......................#####......",
+        "................................................#######.....",
+        "P............H..............................................",
+        "######....#######......................####.................",
+        "######....#######......................####.................",
+        "######....#######......................####................."
+    ],
+    [
+        "............................................................",
+        "............................................................",
+        ".....................................c.c....................",
+        ".....................................###....................",
+        ".................B!B........................................",
+        "...................................B.....B..............X...",
+        ".........................S.............................###..",
+        "........H.......#####...###.......#########...........#####.",
+        ".......###..................................................",
+        ".............................F................####..........",
+        "............................................................",
+        "P....................?......................................",
+        "########...#####...#####....####............................",
+        "########...#####...#####....####............................",
+        "########...#####...#####....####............................"
+    ],
+    [
+        "............................................................",
+        "............................................................",
+        "............................................................",
+        "..................................c.c.......................",
+        "...................B!B...........#####......................",
+        "............................................................",
+        "............................................................",
+        "............F...............................F...........X...",
+        ".........................H.............................###..",
+        "......B?B.............#######..............c..........#####.",
+        "..........................................###...............",
+        "P...............................S...........................",
+        "#######.....####..................#####........######.......",
+        "#######.....####..................#####........######.......",
+        "#######.....####..................#####........######......."
+    ],
+    [
+        "........................................",
+        "........................................",
+        "........................................",
+        "........................................",
+        "........................................",
+        "........................................",
+        "........................................",
+        "........................................",
+        ".....................c.c.c..............",
+        ".....................B.?.B..............",
+        "........................................",
+        "........................................",
+        "P...................................V...",
+        "########################################",
+        "########################################"
+    ]
+];
+
+class Level {
+    constructor(idx) {
+        this.idx = idx; this.mapData = LevelData[idx];
+        this.h = 15; this.w = this.mapData[0].length;
+        this.theme = idx; this.isIce = (idx === 3);
+        this.grid = []; this.animTiles = [];
+        this.enemies = []; this.items = []; this.projectiles = []; this.boss = null;
+        this.parse();
+    }
+    parse() {
+        let ts = CFG.ts;
+        for(let r=0; r<this.h; r++) {
+            this.grid[r] = [];
+            for(let c=0; c<this.w; c++) {
+                let char = this.mapData[r][c]; this.grid[r][c] = char;
+                if (char === 'P') { Game.player = new Player(c*ts, r*ts); this.grid[r][c] = '.'; }
+                else if (char === 'E') { this.enemies.push(new Enemy(c*ts, r*ts, 0)); this.grid[r][c] = '.'; }
+                else if (char === 'F') { this.enemies.push(new Enemy(c*ts, r*ts, 1)); this.grid[r][c] = '.'; }
+                else if (char === 'S') { this.enemies.push(new Enemy(c*ts, r*ts, 2)); this.grid[r][c] = '.'; }
+                else if (char === 'H') { this.enemies.push(new Enemy(c*ts, r*ts, 3)); this.grid[r][c] = '.'; }
+                else if (char === 'V') { this.boss = new Boss(c*ts, r*ts - (48 - ts)); this.grid[r][c] = '.'; }
+            }
+        }
+    }
+    isSolid(c, r) { return (c >= 0 && c < this.w && r >= 0 && r < this.h) && ['#', 'B', '?', 'U', 'c', '!'].includes(this.grid[r][c]); }
+    getTile(c, r) { return (c < 0 || c >= this.w || r < 0 || r >= this.h) ? '.' : this.grid[r][c]; }
+    setTile(c, r, char) { if(c >= 0 && c < this.w && r >= 0 && r < this.h) this.grid[r][c] = char; }
+    bounceTile(c, r) { this.animTiles.push({c, r, timer: 12, yOffset: 0}); }
+    spawnItem(c, r, type) { this.items.push(new Item(c*CFG.ts + 4, r*CFG.ts, type)); this.bounceTile(c, r); }
+
+    update() {
+        for(let i=this.animTiles.length-1; i>=0; i--) {
+            let t = this.animTiles[i]; t.timer--; t.yOffset = Math.sin(t.timer * Math.PI / 12) * -6;
+            if(t.timer <= 0) this.animTiles.splice(i, 1);
+        }
+        for(let i=this.enemies.length-1; i>=0; i--) { this.enemies[i].update(this); if(this.enemies[i].dead) this.enemies.splice(i, 1); }
+        for(let i=this.items.length-1; i>=0; i--) { this.items[i].update(this); if(this.items[i].dead) this.items.splice(i, 1); }
+        for(let i=this.projectiles.length-1; i>=0; i--) { this.projectiles[i].update(this); if(this.projectiles[i].dead) this.projectiles.splice(i, 1); }
+        if(this.boss) { this.boss.update(this); if(this.boss.dead) this.boss = null; }
+    }
+    draw(ctx, camX, camY) {
+        ctx.fillStyle = COLORS.sky[this.theme]; ctx.fillRect(0, 0, CFG.w, CFG.h);
+        ctx.fillStyle = 'rgba(255,255,255,0.15)';
+        for(let i=0; i<6; i++) {
+            let cx = ((i * 200) - camX * 0.15) % (CFG.w + 150); if(cx < -150) cx += CFG.w + 300;
+            ctx.beginPath(); ctx.arc(cx, 80 + (i%2)*30, 45, 0, Math.PI, true); ctx.arc(cx+40, 80 + (i%2)*30, 60, 0, Math.PI, true); ctx.fill();
+        }
+        let ts = CFG.ts, startC = Math.max(0, Math.floor(camX / ts)), endC = Math.min(this.w - 1, Math.floor((camX + CFG.w) / ts));
+        for(let r=0; r<this.h; r++) {
+            for(let c=startC; c<=endC; c++) {
+                let char = this.grid[r][c]; if(char === '.') continue;
+                let px = Math.floor(c * ts - camX), py = Math.floor(r * ts - camY);
+                let anim = this.animTiles.find(a => a.c === c && a.r === r); if(anim) py += Math.floor(anim.yOffset);
+                if (char === '#') {
+                    ctx.fillStyle = this.isIce ? '#a5f3fc' : (this.theme===4 ? '#475569' : COLORS.groundFill); ctx.fillRect(px, py, ts, ts);
+                    if(r===0 || this.grid[r-1][c] !== '#') { ctx.fillStyle = this.isIce ? '#ffffff' : (this.theme===4 ? '#334155' : COLORS.groundTop); ctx.fillRect(px, py, ts, 6); }
+                } 
+                else if (char === 'B') {
+                    ctx.fillStyle = COLORS.brick; ctx.fillRect(px, py, ts, ts);
+                    ctx.fillStyle = COLORS.brickDark; ctx.fillRect(px, py+ts/2, ts, 2); ctx.fillRect(px+ts/2, py, 2, ts);
+                }
+                else if (char === '?' || char === 'c' || char === '!') {
+                    ctx.fillStyle = '#ca8a04'; ctx.fillRect(px, py, ts, ts); ctx.fillStyle = '#fef08a'; ctx.fillRect(px+3, py+3, ts-6, ts-6);
+                    ctx.fillStyle = '#ca8a04'; ctx.font = 'bold 16px Courier'; ctx.fillText('?', px+7, py+18);
+                }
+                else if (char === 'U') { ctx.fillStyle = COLORS.metal; ctx.fillRect(px, py, ts, ts); ctx.fillStyle = '#4b5563'; ctx.fillRect(px+3, py+3, ts-6, ts-6); }
+                else if (char === 'X') {
+                    ctx.fillStyle = '#eab308'; ctx.fillRect(px+8, py, 6, ts);
+                    if(r>0 && this.grid[r-1][c] !== 'X') { ctx.fillStyle = '#ef4444'; ctx.beginPath(); ctx.moveTo(px+14, py); ctx.lineTo(px+36, py+9); ctx.lineTo(px+14, py+18); ctx.fill(); }
+                }
+            }
+        }
+        for(let item of this.items) item.draw(ctx, camX, camY);
+        for(let e of this.enemies) e.draw(ctx, camX, camY);
+        if(this.boss) this.boss.draw(ctx, camX, camY);
+        for(let p of this.projectiles) p.draw(ctx, camX, camY);
+    }
+}
+
+const Game = {
+    canvas: document.getElementById('gameCanvas'), ctx: null,
+    state: 'menu', lastTime: 0, accumulator: 0, step: 1000 / 60,
+    levelIdx: 0, level: null, player: null, camX: 0, camY: 0, score: 0, coins: 0,
+    
+    init() {
+        this.ctx = this.canvas.getContext('2d'); this.ctx.imageSmoothingEnabled = false;
+        Input.init(); let saved = Storage.load();
+        if(saved) { this.savedLevel = saved.level; this.savedScore = saved.score; this.savedCoins = saved.coins; }
+        requestAnimationFrame((t) => this.loop(t));
+    },
+    showUI(id) { document.querySelectorAll('.ui-layer').forEach(el => el.classList.remove('active')); if(id) document.getElementById(id).classList.add('active'); },
+    updateHUD() {
+        if(!this.player) return;
+        document.getElementById('hud-score').innerText = `SCORE: ${this.score.toString().padStart(6, '0')}`;
+        document.getElementById('hud-coins').innerText = `🪙 x${this.coins.toString().padStart(2, '0')}`;
+        document.getElementById('hud-level').innerText = `WORLD ${this.levelIdx + 1}`;
+        document.getElementById('hud-hp').innerText = `HP: ${'❤️'.repeat(this.player.hp)}`;
+    },
+    start(useSave=false) {
+        if(useSave && this.savedLevel !== undefined) { this.levelIdx = this.savedLevel; this.score = this.savedScore; this.coins = this.savedCoins; } 
+        else { this.levelIdx = 0; this.score = 0; this.coins = 0; }
+        this.loadLevel();
+    },
+    loadLevel() {
+        this.level = new Level(this.levelIdx); this.camX = 0; this.camY = 0; FX.clear();
+        this.state = 'playing'; this.showUI(null);
+        Storage.save({level: this.levelIdx, score: this.score, coins: this.coins});
+    },
+    addScore(pts) { this.score += pts; },
+    collectCoin() { 
+        this.coins++; this.addScore(50); AudioSys.play('coin'); 
+        if(this.coins >= 100) { this.coins -= 100; if(this.player) this.player.hp++; AudioSys.play('powerup'); }
+    },
+    playerDied() { 
+        this.state = 'gameover_wait'; AudioSys.play('die'); 
+        setTimeout(() => {
+            this.state = 'gameover'; document.getElementById('gameover-stats').innerText = `Score: ${this.score}`; this.showUI('menu-gameover'); 
+        }, 1500);
+    },
+    restartLevel() { this.score = Math.max(0, this.score - 500); this.loadLevel(); },
+    winLevel() { 
+        this.state = 'victory'; AudioSys.play('win'); this.addScore(this.player.hp * 500); 
+        document.getElementById('victory-stats').innerText = `Time Bonus + HP Bonus! Total: ${this.score}`; this.showUI('menu-victory'); 
+    },
+    winGame() { this.state = 'end'; AudioSys.play('win'); document.getElementById('final-stats').innerText = `Final Score: ${this.score}`; this.showUI('menu-end'); Storage.save({level: 0, score: 0, coins: 0}); },
+    nextLevel() { this.levelIdx++; if(this.levelIdx >= LevelData.length) this.winGame(); else this.loadLevel(); },
+    pause() { if(this.state !== 'playing') return; this.state = 'paused'; this.showUI('menu-pause'); },
+    resume() { this.state = 'playing'; this.showUI(null); this.lastTime = performance.now(); },
+    quit() { this.state = 'menu'; this.showUI('menu-main'); if(Storage.load()) document.getElementById('btn-continue').style.display = 'inline-block'; },
+
+    loop(time) {
+        requestAnimationFrame((t) => this.loop(t));
+        if (this.state !== 'playing' && this.state !== 'gameover_wait') return;
+        let dt = time - this.lastTime; if (dt > 250) dt = 250; 
+        this.lastTime = time; this.accumulator += dt;
+        while (this.accumulator >= this.step) { this.update(); this.accumulator -= this.step; Input.update(); }
+        this.draw();
+    },
+
+    update() {
+        if (Input.pressed.pause && this.state === 'playing') { this.pause(); return; }
+        if (Utils.shake > 0) Utils.shake--;
+
+        if (this.state === 'playing') {
+            this.player.update(this.level); 
+            
+            for(let i=this.level.enemies.length-1; i>=0; i--) {
+                let e = this.level.enemies[i];
+                if(Utils.rectIntersect(this.player, e)) {
+                    if (this.player.vy > 0 && this.player.y < e.y + e.h * 0.5) {
+                        this.player.vy = CFG.bounceForce; this.player.jumpBuf = 0; e.dead = true;
+                        this.addScore(100); FX.spawnText(e.x, e.y, "100"); FX.spawn(e.x+10, e.y+10, 15, COLORS.enemyWalk, 3);
+                        AudioSys.play('stomp');
+                    } else this.player.damage();
+                }
+            }
+
+            for(let i=this.level.projectiles.length-1; i>=0; i--) {
+                let p = this.level.projectiles[i];
+                if(p.isPlayer) {
+                    let hitEnemy = false;
+                    for(let j=this.level.enemies.length-1; j>=0; j--) {
+                        let e = this.level.enemies[j];
+                        if(Utils.rectIntersect(p, e)) {
+                            e.dead = true; p.dead = true; hitEnemy = true;
+                            this.addScore(150); FX.spawnText(e.x, e.y, "150"); FX.spawn(e.x+10, e.y+10, 15, COLORS.enemyWalk, 4);
+                            AudioSys.play('hit'); break;
+                        }
+                    }
+                    if(!hitEnemy && !p.dead && this.level.boss && Utils.rectIntersect(p, this.level.boss)) { this.level.boss.damage(); p.dead = true; }
+                } else { if(Utils.rectIntersect(p, this.player)) { this.player.damage(); p.dead = true; } }
+            }
+
+            if(this.level.boss && Utils.rectIntersect(this.player, this.level.boss)) {
+                if (this.player.vy > 0 && this.player.y < this.level.boss.y && (this.level.boss.state === 'idle' || this.level.boss.state === 'shoot')) {
+                    this.player.vy = CFG.bounceForce * 1.5; this.level.boss.damage();
+                } else this.player.damage();
+            }
+
+            for(let i=this.level.items.length-1; i>=0; i--) {
+                let item = this.level.items[i];
+                if(item.type === 'powerup' && Utils.rectIntersect(this.player, item)) {
+                    this.player.power = 1; this.addScore(300); FX.spawnText(item.x, item.y, "300");
+                    FX.spawn(item.x+8, item.y+8, 25, COLORS.powerup, 4); AudioSys.play('powerup'); item.dead = true;
+                }
+            }
+
+            let cx = Math.floor(this.player.x / CFG.ts), cy = Math.floor(this.player.y / CFG.ts);
+            if(this.level.getTile(cx, cy) === 'X' || this.level.getTile(cx+1, cy) === 'X') this.winLevel();
+        }
+
+        this.level.update(); FX.update();
+        let targetCamX = this.player.x - CFG.w / 2 + this.player.w / 2;
+        this.camX += (targetCamX - this.camX) * 0.1; this.camX = Utils.clamp(this.camX, 0, this.level.w * CFG.ts - CFG.w);
+        this.camY = 0; 
+        this.updateHUD();
+    },
+    draw() {
+        let ctx = this.ctx; ctx.save();
+        if (Utils.shake > 0) ctx.translate((Math.random() - 0.5) * Utils.shake, (Math.random() - 0.5) * Utils.shake);
+        this.level.draw(ctx, this.camX, this.camY);
+        if (!this.player.dead || this.state === 'gameover_wait') this.player.draw(ctx, this.camX, this.camY);
+        FX.draw(ctx, this.camX, this.camY); ctx.restore();
+    }
+};
+
+window.onload = () => Game.init();
+</script>
+</body>
+</html>
